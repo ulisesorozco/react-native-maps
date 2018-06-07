@@ -10,6 +10,11 @@
 #import <React/RCTUtils.h>
 #import <React/UIView+React.h>
 
+#define SSGREEN @"#2ECC40"
+#define SSBLUE @"#0074D9"
+#define SSYELLOW @"#FFDC00"
+
+
 @interface AIRGoogleMapOverlay()
   @property (nonatomic, strong, readwrite) UIImage *overlayImage;
   @property (nonatomic, readwrite) GMSCoordinateBounds *overlayBounds;
@@ -49,7 +54,7 @@
                                                               partialLoadBlock:nil
                                                                completionBlock:^(NSError *error, UIImage *image) {
                                                                  if (error) {
-                                                                   NSLog(@"%@", error);
+                                                                   NSLog(@">>> %@", error);
                                                                  }
                                                                  dispatch_async(dispatch_get_main_queue(), ^{
                                                                    NSLog(@">>> IMAGE: %@", image);
@@ -71,6 +76,149 @@
                                                         coordinate:_northEast];
 
   _overlay.bounds = _overlayBounds;
+}
+
+- (void)setPointsSrc:(NSArray *)pointsSrc {
+    _pointsSrc = pointsSrc;
+    [self drawBoundary:pointsSrc transparent:false];
+}
+
+- (void)drawBoundary:(NSArray *)area transparent:(BOOL)transparent
+{
+    float maxSavedImageHeight = 300.0;
+
+    int pMinY = 100000;
+    int pMaxY = 0;
+
+    int pMinX = 100000;
+    int pMaxX = 0;
+
+    for (NSDictionary* point in area) {
+
+        int coordX = [[point valueForKey:@"x"] intValue];
+        int coordY = [[point valueForKey:@"y"] intValue];
+        
+
+        pMinY = MIN(pMinY, coordY);
+        pMaxY = MAX(pMaxY, coordY);
+
+        pMinX = MIN(pMinX, coordX);
+        pMaxX = MAX(pMaxX, coordX);
+    }
+
+    double pointsHeight = ABS(pMaxY - pMinY);
+    double pointsWidth  = ABS(pMaxX - pMinX);
+
+    double bmpScale = maxSavedImageHeight/(double)pointsHeight;
+    double cHeight = maxSavedImageHeight;
+    double cWidth = (double)pointsWidth * bmpScale;
+
+    // pointsHeight - count of pixel cells in height
+    float borderWidth = maxSavedImageHeight/pointsHeight;
+
+    NSMutableArray* points = [[NSMutableArray alloc] init];
+    double marginOffset = (double)borderWidth * 2;
+
+    for (NSInteger i = 0; i < area.count; i++) {
+        NSDictionary* point = area[i];
+        int x = [[point valueForKey:@"x"] doubleValue];
+        int y = [[point valueForKey:@"y"] doubleValue];
+
+        CGPoint newPoint = CGPointMake((x * bmpScale) + marginOffset, cHeight - (y * bmpScale) + marginOffset);
+        [points addObject:[NSValue valueWithCGPoint:newPoint]];
+    }
+
+    CGSize size = CGSizeMake((CGFloat)cWidth + borderWidth * 4, (CGFloat)cHeight + borderWidth * 4);
+    Boolean opaque = false;
+    CGFloat scale = 1;
+
+    UIGraphicsBeginImageContextWithOptions(size, opaque, scale);
+
+    CGContextRef context =  UIGraphicsGetCurrentContext();
+    CGContextSetBlendMode(context, kCGBlendModeCopy);
+
+    UIColor* fillColor;
+    UIColor* outColor;
+    UIColor* innerColor;
+    if (transparent) {
+        fillColor = [UIColor clearColor];
+        outColor = [UIColor clearColor];
+        innerColor = [UIColor clearColor];
+    } else {
+        fillColor = [self getColorFromHex:SSGREEN withAlpha:0.5f];
+        outColor = [self getColorFromHex:SSYELLOW withAlpha:1.0f];
+        innerColor = [self getColorFromHex:SSBLUE withAlpha:1.0f];
+    }
+
+    CGContextSetFillColorWithColor(context, fillColor.CGColor);
+    CGContextSetShouldAntialias(context, true);
+    CGContextSetAllowsAntialiasing(context, true);
+
+    CGContextSetStrokeColorWithColor(context, outColor.CGColor);
+
+    CGContextSetLineWidth(context, borderWidth * 3);
+
+    CGMutablePathRef path = CGPathCreateMutable();
+
+    CGContextBeginPath(context);
+
+    CGPathMoveToPoint(path, nil, [points.firstObject CGPointValue].x, [points.firstObject CGPointValue].y);
+
+    for (NSInteger i = 1; i < points.count; i++) {
+        CGPoint newPoint = [[points objectAtIndex:i] CGPointValue];
+        CGPathAddLineToPoint(path, nil, newPoint.x, newPoint.y);
+    }
+
+    CGPathCloseSubpath(path);
+    CGContextAddPath(context, path);
+    CGContextStrokePath(context);
+
+    CGContextAddPath(context, path);
+    CGContextFillPath(context);
+
+    CGContextSetStrokeColorWithColor(context, innerColor.CGColor);
+    CGContextSetLineWidth(context, borderWidth);
+    CGContextAddPath(context, path);
+    CGContextStrokePath(context);
+
+    UIImage* image = UIGraphicsGetImageFromCurrentImageContext();
+    CGContextFlush(context);
+    UIGraphicsEndImageContext();
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSLog(@">>> IMAGE Loaded");
+        weakSelf.overlayImage = image;
+        weakSelf.overlay.icon = image;
+    });
+}
+
+-(UIColor*) getColorFromHex:(NSString*)hexString withAlpha:(float)alpha {
+    NSString *cString = [hexString uppercaseString];
+    
+    if ([cString hasPrefix:@"#"]) {
+        cString = [cString substringFromIndex:1];
+    }
+    
+    if (cString.length != 6) {
+        return [UIColor clearColor];
+    }
+    
+    float red = [self convertHexToInt:[cString substringWithRange:NSMakeRange(0, 2)]] / 255.0f;
+    float green = [self convertHexToInt:[cString substringWithRange:NSMakeRange(2, 2)]] / 255.0f;
+    float blue = [self convertHexToInt:[cString substringWithRange:NSMakeRange(4, 2)]] / 255.0f;
+    
+    return [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+}
+
+-(int) convertHexToInt:(NSString*)string {
+    NSScanner *scanner = [[NSScanner alloc] initWithString:string];
+    
+    unsigned int retval;
+    if (![scanner scanHexInt:&retval]) {
+        NSLog(@"Invalid hex string");
+    }
+    return retval;
 }
 
 @end
