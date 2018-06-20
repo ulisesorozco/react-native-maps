@@ -1,17 +1,23 @@
 package com.airbnb.android.react.maps;
 
 import android.content.Context;
+import android.graphics.Point;
 import android.os.Build;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
 
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReadableArray;
+import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.common.MapBuilder;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.facebook.react.uimanager.ViewGroupManager;
 import com.facebook.react.uimanager.annotations.ReactProp;
+import com.google.android.gms.maps.model.LatLng;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -61,6 +67,15 @@ public class AirMapOverlayManager extends ViewGroupManager<AirMapOverlay> {
     view.setImage(source);
   }
 
+  @ReactProp(name = "points")
+  public void setPoints(AirMapOverlay view, @Nullable ReadableArray points) {
+    view.setPoints(points);
+  }
+
+  @ReactProp(name = "maxIdx")
+  public void setMaxIdx(AirMapOverlay view, @Nullable ReadableMap maxIdx) {
+    view.setMaxIdx(maxIdx);
+  }
 
   @Override
   @Nullable

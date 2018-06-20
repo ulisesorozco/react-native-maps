@@ -2,6 +2,16 @@ package com.airbnb.android.react.maps;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Point;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.support.annotation.Nullable;
+import android.support.v4.content.ContextCompat;
+
 
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
@@ -14,6 +24,13 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.Map;
+
+
 
 public class AirMapOverlay extends AirMapFeature implements ImageReadable {
 
@@ -25,12 +42,24 @@ public class AirMapOverlay extends AirMapFeature implements ImageReadable {
   private float zIndex;
   private float transparency;
 
+  private Bitmap boundaryBitmap;
+  private Context mContext;
+  private ReadableArray points;
+  private ReadableMap maxIdx;
+
   private final ImageReader mImageReader;
   private GoogleMap map;
+
+  private static final String POINTS = "points";
+  private static final String POINTS_ARRAY = "pointsArray";
+  private static final String POINT_X = "x";
+  private static final String POINT_Y = "y";
+  private static final String MAX_IDX = "maxIdx";
 
   public AirMapOverlay(Context context) {
     super(context);
     this.mImageReader = new ImageReader(context, getResources(), this);
+    this.mContext = context;
   }
 
   public void setBounds(ReadableArray bounds) {
@@ -60,6 +89,15 @@ public class AirMapOverlay extends AirMapFeature implements ImageReadable {
     this.mImageReader.setImage(uri);
   }
 
+  public void setPoints(ReadableArray points) {
+    this.points = points;
+  }
+
+  public void setMaxIdx(ReadableMap maxIdx) {
+    this.maxIdx = maxIdx;
+    this.boundaryBitmap = makeBoundary(this.mContext);
+  }
+
 
   public GroundOverlayOptions getGroundOverlayOptions() {
     if (this.groundOverlayOptions == null) {
@@ -79,7 +117,97 @@ public class AirMapOverlay extends AirMapFeature implements ImageReadable {
       options.zIndex(zIndex);
       return options;
     }
+    if (this.boundaryBitmap != null) {
+      GroundOverlayOptions options = new GroundOverlayOptions();
+      BitmapDescriptor boundaryBitmapDescriptor = BitmapDescriptorFactory.fromBitmap(boundaryBitmap);
+      options.image(boundaryBitmapDescriptor);
+      options.positionFromBounds(bounds);
+      options.zIndex(zIndex);
+      return options;
+    }
     return null;
+  }
+
+  @Nullable
+  public Bitmap makeBoundary(Context context) {
+
+    try {
+      List<Point> points = new ArrayList<>();
+
+      for (int i = 0; i < this.points.size(); i++) {
+        ReadableMap point = this.points.getMap(i);
+        points.add(new Point(point.getInt("x"), point.getInt("y")));
+      }
+
+      final int width = this.maxIdx.getInt("x") + 1;
+      final int height = this.maxIdx.getInt("y") + 1;
+
+      //===== this part fix OOME in case of big area ===
+      //TODO improve for really big area
+      float scale = 16;//getNumber(SCALE).floatValue();
+      int mSize = width > height ? width : height;
+      if (mSize > 120) {
+        scale = scale / (mSize / 120);
+      }
+
+
+      //zoneScale *= IMAGE_DENSITY; // adjust for predefined density. the higher this number, the sharper the image.
+      int shift = 27;
+
+      Bitmap image = Bitmap.createBitmap((int)(width * scale + shift * 2), (int)(height * scale + shift * 2), Bitmap.Config.ARGB_8888);
+      image.eraseColor(Color.argb(0, 0, 0, 0));   // pre-fill transparent
+      Canvas canvas = new Canvas(image);
+
+      List<Point> reflectedPoints = reflectZone(points, this.maxIdx.getInt("y"));
+
+      //paint Yellow boarder
+      Paint paint = new Paint();
+      paint.setColor(Color.parseColor("#FFDC00"));
+      paint.setStyle(Paint.Style.STROKE);
+      paint.setStrokeWidth(60);
+      Path path = new Path();
+      path.moveTo(reflectedPoints.get(0).x * scale + shift, reflectedPoints.get(0).y * scale + shift);
+      for (int i = 1; i < points.size(); i++) {
+        path.lineTo(reflectedPoints.get(i).x * scale + shift, reflectedPoints.get(i).y * scale + shift);
+      }
+      path.close();
+      canvas.drawPath(path, paint);
+
+      //paint Green zone
+      paint.reset();
+      paint.setColor(Color.parseColor("#802ECC40"));
+      paint.setStyle(Paint.Style.FILL);
+      paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));
+      paint.setStrokeWidth(1);
+      path.reset(); // only needed when reusing this path for a new build
+      path.moveTo(reflectedPoints.get(0).x * scale + shift, reflectedPoints.get(0).y * scale + shift);
+      for (int i = 1; i < points.size(); i++) {
+        path.lineTo(reflectedPoints.get(i).x * scale + shift, reflectedPoints.get(i).y * scale + shift);
+      }
+      path.close();
+      canvas.drawPath(path, paint);
+
+      //pain Blue boarder
+      paint.reset();
+      paint.setColor(Color.parseColor("#0074D9"));
+      paint.setStyle(Paint.Style.STROKE);
+      paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));
+      paint.setStrokeWidth(20);
+      path.reset(); // only needed when reusing this path for a new build
+      path.moveTo(reflectedPoints.get(0).x * scale + shift, reflectedPoints.get(0).y * scale + shift);
+      for (int i = 1; i < points.size(); i++) {
+        path.lineTo(reflectedPoints.get(i).x * scale + shift, reflectedPoints.get(i).y * scale + shift);
+      }
+      path.close();
+      canvas.drawPath(path, paint);
+
+      int bc = image.getByteCount();
+
+      return image;
+
+    } catch (NullPointerException e) {
+      return null;
+    }
   }
 
   @Override
@@ -140,5 +268,20 @@ public class AirMapOverlay extends AirMapFeature implements ImageReadable {
       return this.map.addGroundOverlay(groundOverlayOptions);
     }
     return null;
+  }
+
+  private List<Point> reflectZone(List<Point> points, int maxIdxY) {
+    List<Point> reflectedPoints = new ArrayList<>();
+    for (Point p : points) {
+      reflectedPoints.add(new Point(p.x, -(p.y - maxIdxY)));
+    }
+    return reflectedPoints;
+  }
+
+  private int prepareInt(Number n) {
+    if (n instanceof Double) {
+      return Double.valueOf(n.doubleValue() + 0.00001).intValue();
+    }
+    return n.intValue();
   }
 }

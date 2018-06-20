@@ -395,6 +395,9 @@ declare module "react-native-maps" {
     export interface MapOverlayProps extends ViewProperties {
         image?: ImageURISource | ImageRequireSource;
         bounds: [Coordinate, Coordinate];
+        // Custom params
+        points?: Array<any>;
+        maxIdx?: any;
     }
 
     export class Overlay extends React.Component<MapOverlayProps, any> {
